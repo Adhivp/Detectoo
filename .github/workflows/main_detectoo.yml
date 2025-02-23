@@ -24,18 +24,31 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-opencv libespeak1
+
       - name: Create and start virtual environment
         run: |
           python -m venv venv
           source venv/bin/activate
-      
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
-        
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
       - name: Zip artifact for deployment
-        run: zip release.zip ./* -r
+        run: |
+          zip release.zip ./* -r \
+          -x "venv/*" \
+          -x "__pycache__/*" \
+          -x "*.pyc" \
+          -x "*.pyo" \
+          -x "*.pyd"
 
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
@@ -64,7 +77,6 @@ jobs:
       - name: Unzip artifact for deployment
         run: unzip release.zip
 
-      
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -78,4 +90,3 @@ jobs:
         with:
           app-name: 'Detectoo'
           slot-name: 'Production'
-          

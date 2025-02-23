@@ -10,7 +10,7 @@ import time
 import logging
 import os
 from dotenv import load_dotenv
-
+import sys
 load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -227,4 +227,9 @@ def clock_reference():
     return Response(generate_clock_reference(), mimetype='image/jpeg')
 
 if __name__ == '__main__':
-    app.run(debug=False, threaded=True,port=5001)
+    try:
+        # Get port from Azure's environment variable or use 8000 as default
+        port = int(os.environ.get('WEBSITES_PORT', 8000))
+        app.run(debug=False,host='0.0.0.0', port=port)
+    except Exception as e:
+        print(f"Error starting application: {e}", file=sys.stderr)
