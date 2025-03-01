@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="icon" type="image/png" href="/static/logo_nobg.png">
     <title>Detectoo – AI-Powered Object Recognition for the Blind</title>
     <style>
@@ -464,6 +468,24 @@
             margin-right: 30px;
             display: block;
         }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            height: 0;
+            padding-bottom: 75%; /* 4:3 aspect ratio */
+            overflow: hidden;
+        }
+
+        .video-wrapper video,
+        .video-wrapper canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -509,7 +531,14 @@
 
         <div class="main-content">
             <div class="video-container">
-                <img id="videoFeed" src="" alt="Video feed" style="display: none;">
+                <div class="video-wrapper">
+                    <video id="videoFeed" 
+                        autoplay 
+                        playsinline 
+                        muted>
+                    </video>
+                    <canvas id="detectionOverlay"></canvas>
+                </div>
             </div>
 
             <div class="detections-panel">
@@ -571,26 +600,22 @@
             synth.speak(utterance);
         }
 
-        function startDetection() {
-            videoFeed.src = '/video_feed';
-            videoFeed.style.display = 'block';
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-            statusIndicator.classList.remove('status-inactive');
-            statusIndicator.classList.add('status-active');
-            isRunning = true;
-            startDetectionUpdates();
-            showNotification('Starting detection...', 3000, true);
-
-            fetch('/start')
-                .then(response => response.json())
-                .then(data => console.log(data))
-                .catch(error => console.error('Error:', error));
+        async function startDetection() {
+            if (await startCamera()) {
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                statusIndicator.classList.remove('status-inactive');
+                statusIndicator.classList.add('status-active');
+                isRunning = true;
+                
+                // Start detection loop
+                detectionInterval = setInterval(captureAndDetect, 1000);
+                showNotification('Starting detection...', 3000, true);
+            }
         }
 
         function stopDetection() {
-            videoFeed.src = '';
-            videoFeed.style.display = 'none';
+            stopCamera();
             startBtn.disabled = false;
             stopBtn.disabled = true;
             statusIndicator.classList.remove('status-active');
@@ -599,11 +624,6 @@
             clearInterval(detectionInterval);
             detectionText.textContent = 'Detection stopped';
             showNotification('Detection stopped', 3000, true);
-
-            fetch('/stop')
-                .then(response => response.json())
-                .then(data => console.log(data))
-                .catch(error => console.error('Error:', error));
         }
 
         function startDetectionUpdates() {
@@ -705,16 +725,13 @@
                 recognition.onstart = () => {
                     isListening = true;
                     voiceControlBtn.classList.add('listening');
-                    voiceStatus.textContent = 'Listening for commands...';
-                    showNotification('Listening for command...', 3000, true);
+                    voiceControlBtn.textContent = '🎤 Listening...';
                 };
 
                 recognition.onend = () => {
                     isListening = false;
                     voiceControlBtn.classList.remove('listening');
                     voiceControlBtn.textContent = '🎤 Enable Voice Control';
-                    voiceStatus.textContent = 'Voice control inactive';
-                    showNotification('Voice control deactivated', 3000, true);
                 };
 
                 recognition.onresult = (event) => {
@@ -725,38 +742,23 @@
                         if (command === 'start') {
                             if (!isRunning) {
                                 startDetection();
-                                showNotification('Starting detection...');
-                            } else {
-                                showNotification('Detection is already running');
                             }
                         } else if (command === 'stop') {
                             if (isRunning) {
                                 stopDetection();
-                                showNotification('Stopping detection...');
-                            } else {
-                                showNotification('Detection is not running');
                             }
                         } else {
-                            const message = `Detected "${command}". Please say either "start" or "stop"`;
-                            showNotification(message);
-                            const utterance = new SpeechSynthesisUtterance(message);
-                            utterance.onend = () => {
-                                setTimeout(() => {
-                                    if (!isListening) {
-                                        recognition.start();
-                                        voiceControlBtn.textContent = '🎤 Listening...';
-                                        voiceControlBtn.classList.add('listening');
-                                        voiceStatus.textContent = 'Listening for commands...';
-                                    }
-                                }, 500);
-                            };
-                            synth.speak(utterance);
+                            speak('Please say either start or stop');
+                            setTimeout(() => {
+                                if (!isListening) {
+                                    recognition.start();
+                                }
+                            }, 1500);
                         }
                     } catch (error) {
                         console.error('Error processing speech result:', error);
                         handleRecognitionError('processing');
                     }
-
                     recognition.stop();
                 };
 
@@ -780,10 +782,11 @@
                 if (!isListening) {
                     recognition.start();
                     voiceControlBtn.textContent = '🎤 Listening...';
-                    showNotification('Voice control activated', 3000, true);
+                    voiceControlBtn.classList.add('listening');
                 } else {
                     recognition.stop();
-                    showNotification('Voice control deactivated', 3000, true);
+                    voiceControlBtn.textContent = '🎤 Enable Voice Control';
+                    voiceControlBtn.classList.remove('listening');
                 }
             } catch (error) {
                 console.error('Error toggling voice control:', error);
@@ -848,6 +851,272 @@
                     splashScreen.style.display = 'none';
                 }, 500);
             }, 2000);
+        });
+
+        // Camera handling
+        let stream = null;
+        let videoElement = document.getElementById('videoFeed');
+        const captureCanvas = document.createElement('canvas');
+        const captureCtx = captureCanvas.getContext('2d');
+
+// Replace the existing startCamera function
+
+async function startCamera() {
+    try {
+        // First check if any old stream exists and stop it
+        if (stream) {
+            stopCamera();
+        }
+
+        // Create constraints array with fallback options
+        const constraintsArray = [
+            // First try environment camera (back camera)
+            {
+                video: {
+                    facingMode: { exact: 'environment' },
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                }
+            },
+            // Then try any camera
+            {
+                video: {
+                    facingMode: 'user',
+                    width: { ideal: 640 },
+                    height: 480
+                }
+            },
+            // Finally try with basic constraints
+            { video: true }
+        ];
+
+        let lastError;
+        for (const constraints of constraintsArray) {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                break; // If successful, exit the loop
+            } catch (e) {
+                lastError = e;
+                continue; // Try next constraints
+            }
+        }
+
+        if (!stream) {
+            throw lastError || new Error('Could not access any camera');
+        }
+
+        // Ensure video element is properly configured
+        videoElement = document.getElementById('videoFeed'); // Re-get the element
+        if (!videoElement) {
+            throw new Error('Video element not found');
+        }
+
+        // Configure video element
+        videoElement.setAttribute('autoplay', '');
+        videoElement.setAttribute('playsinline', '');
+        videoElement.setAttribute('muted', '');
+        videoElement.muted = true; // Required for autoplay in some browsers
+        
+        // Set the stream
+        videoElement.srcObject = stream;
+
+        // Wait for video to be ready
+        await new Promise((resolve, reject) => {
+            videoElement.onloadedmetadata = () => {
+                // Configure canvas after video is loaded
+                captureCanvas.width = videoElement.videoWidth || 640;
+                captureCanvas.height = videoElement.videoHeight || 480;
+                resolve();
+            };
+            videoElement.onerror = () => reject(new Error('Video element error'));
+            
+            // Set timeout for loading
+            setTimeout(() => reject(new Error('Video loading timeout')), 10000);
+        });
+
+        // Ensure video plays
+        try {
+            await videoElement.play();
+        } catch (playError) {
+            console.error('Play error:', playError);
+            // Try alternative play method
+            const playPromise = videoElement.play();
+            if (playPromise !== undefined) {
+                await playPromise;
+            }
+        }
+
+        showNotification('Camera started successfully', 3000, true);
+        return true;
+
+    } catch (err) {
+        console.error('Camera access error:', err);
+        let errorMessage = 'Error accessing camera. ';
+        
+        switch (err.name) {
+            case 'NotAllowedError':
+                errorMessage += 'Please allow camera access in your browser settings.';
+                break;
+            case 'NotFoundError':
+                errorMessage += 'No camera found on your device.';
+                break;
+            case 'NotReadableError':
+                errorMessage += 'Camera may be in use by another application.';
+                break;
+            case 'OverconstrainedError':
+                errorMessage += 'No compatible camera found.';
+                break;
+            default:
+                errorMessage += err.message || 'Unknown error occurred.';
+        }
+        
+        showNotification(errorMessage, 5000);
+        return false;
+    }
+}
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => {
+                    track.stop();
+                });
+                if (videoElement.srcObject) {
+                    videoElement.srcObject = null;
+                }
+                stream = null;
+            }
+        }
+
+        async function captureAndDetect() {
+            if (!stream || !videoElement.srcObject) return;
+            
+            try {
+                if (videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
+                    return;
+                }
+
+                // Draw current video frame to canvas
+                captureCtx.drawImage(videoElement, 0, 0, 640, 480);
+                
+                const blob = await new Promise(resolve => 
+                    captureCanvas.toBlob(resolve, 'image/jpeg', 0.8)
+                );
+                
+                const formData = new FormData();
+                formData.append('image', blob);
+                
+                const response = await fetch('/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const detections = await response.json();
+                if (detections.error) {
+                    throw new Error(detections.error);
+                }
+                
+                // Clear previous drawings
+                const displayCanvas = videoElement.nextElementSibling;
+                const displayCtx = displayCanvas.getContext('2d');
+                displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+                
+                // Draw bounding boxes
+                detections.forEach(detection => {
+                    const { bbox, label, confidence } = detection;
+                    const scaledBBox = scaleCoordinates(bbox, displayCanvas);
+                    
+                    // Draw box
+                    displayCtx.strokeStyle = '#00FF00';
+                    displayCtx.lineWidth = 2;
+                    displayCtx.strokeRect(
+                        scaledBBox.x, 
+                        scaledBBox.y, 
+                        scaledBBox.width, 
+                        scaledBBox.height
+                    );
+                    
+                    // Draw label background
+                    const text = `${label} (${Math.round(confidence * 100)}%)`;
+                    displayCtx.font = '16px Arial';
+                    const textMetrics = displayCtx.measureText(text);
+                    displayCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    displayCtx.fillRect(
+                        scaledBBox.x, 
+                        scaledBBox.y - 25,
+                        textMetrics.width + 10,
+                        25
+                    );
+                    
+                    // Draw label text
+                    displayCtx.fillStyle = '#00FF00';
+                    displayCtx.fillText(
+                        text,
+                        scaledBBox.x + 5,
+                        scaledBBox.y - 7
+                    );
+                });
+                
+                // Update detection text and speak results
+                updateDetections(detections);
+                
+            } catch (err) {
+                console.error('Detection error:', err);
+            }
+        }
+
+        function scaleCoordinates(bbox, canvas) {
+            const scaleX = canvas.width / 640;
+            const scaleY = canvas.height / 480;
+            
+            return {
+                x: bbox.x * scaleX,
+                y: bbox.y * scaleY,
+                width: bbox.width * scaleX,
+                height: bbox.height * scaleY
+            };
+        }
+
+        function updateDetections(detections) {
+            if (detections.length > 0) {
+                const text = `Detected ${detections.length} objects. ` +
+                    detections.map(obj => 
+                        `${obj.label} at ${obj.position} o'clock`
+                    ).join(' ');
+                
+                detectionText.textContent = text;
+                
+                if (isAudioEnabled) {
+                    speak(text);
+                }
+            } else {
+                detectionText.textContent = 'No objects detected';
+            }
+        }
+
+        // Add event listener for page unload
+        window.addEventListener('beforeunload', () => {
+            stopCamera();
+        });
+
+        // Initialize canvas size on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const videoWrapper = document.querySelector('.video-wrapper');
+            const canvas = document.getElementById('detectionOverlay');
+            
+            // Set initial size
+            function updateCanvasSize() {
+                canvas.width = videoWrapper.clientWidth;
+                canvas.height = videoWrapper.clientHeight;
+            }
+            
+            updateCanvasSize();
+            
+            // Update on window resize
+            window.addEventListener('resize', updateCanvasSize);
         });
     </script>
 </body>

@@ -22,6 +22,14 @@ MODEL_PATH = os.getenv('MODEL_PATH', 'yolo11m.pt')
 KNOWN_WIDTH = float(os.getenv('KNOWN_WIDTH', 0.6))
 FOCAL_LENGTH = int(os.getenv('FOCAL_LENGTH', 1000))
 
+# Initialize YOLO model globally
+try:
+    model = YOLO(MODEL_PATH)
+    logger.info(f"YOLO model loaded successfully from {MODEL_PATH}")
+except Exception as e:
+    logger.error(f"Error loading YOLO model: {e}")
+    sys.exit(1)
+
 class AudioFeedback:
     def __init__(self):
         self.engine = None
@@ -225,6 +233,67 @@ def stop():
 @app.route('/clock_reference')
 def clock_reference():
     return Response(generate_clock_reference(), mimetype='image/jpeg')
+
+@app.route('/detect', methods=['POST'])
+def detect():
+    try:
+        file = request.files['image']
+        nparr = np.frombuffer(file.read(), np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            raise ValueError("Failed to decode image")
+            
+        results = model(frame, conf=0.5)
+        detected_objects = []
+        
+        for r in results:
+            boxes = r.boxes
+            for box in boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cls = int(box.cls[0])
+                label = model.names[cls]
+                
+                # Calculate center and position
+                center_x = (x1 + x2) / 2
+                center_y = (y1 + y2) / 2
+                
+                # Calculate clock position
+                frame_height, frame_width = frame.shape[:2]
+                clock_pos = calculate_clock_position(
+                    center_x, center_y, frame_width, frame_height
+                )
+                
+                # Calculate distance
+                distance = (KNOWN_WIDTH * FOCAL_LENGTH) / (x2 - x1)
+                
+                detected_objects.append({
+                    'label': label,
+                    'position': clock_pos,
+                    'distance': f"{distance:.1f}",
+                    'confidence': float(box.conf[0]),
+                    'bbox': {
+                        'x': x1,
+                        'y': y1,
+                        'width': x2 - x1,
+                        'height': y2 - y1
+                    }
+                })
+        
+        return jsonify(detected_objects)
+    
+    except Exception as e:
+        logger.error(f"Error processing detection: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+# Add this helper function outside of any class or route
+def calculate_clock_position(x, y, frame_width, frame_height):
+    """Calculate clock position (1-12) based on coordinates"""
+    center_x = frame_width / 2
+    center_y = frame_height / 2
+    angle = math.atan2(y - center_y, x - center_x)
+    clock_position = int(((angle + math.pi) * 6 / math.pi + 3) % 12)
+    return 12 if clock_position == 0 else clock_position
 
 if __name__ == '__main__':
     try:
