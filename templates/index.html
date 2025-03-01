@@ -586,18 +586,23 @@
         function speak(message, priority = false) {
             if (!isAudioEnabled && !priority) return;
             
+            // Cancel any ongoing speech if this is a priority message
+            if (priority) {
+                window.speechSynthesis.cancel();
+            }
+            
+            // Only proceed if detection is running or if this is a priority message
+            if (!isRunning && !priority) return;
+            
             const utterance = new SpeechSynthesisUtterance(message);
             
-            if (priority && synth.speaking) {
-                synth.cancel();
-            }
+            // Add an error handler
+            utterance.onerror = (event) => {
+                console.error('Speech synthesis error:', event);
+            };
             
-            if (!priority && synth.speaking) {
-                setTimeout(() => speak(message), 1000);
-                return;
-            }
-            
-            synth.speak(utterance);
+            // Speak the message
+            window.speechSynthesis.speak(utterance);
         }
 
         async function startDetection() {
@@ -608,8 +613,20 @@
                 statusIndicator.classList.add('status-active');
                 isRunning = true;
                 
+                // Clear any existing interval first
+                if (detectionInterval) {
+                    clearInterval(detectionInterval);
+                }
+                
                 // Start detection loop
-                detectionInterval = setInterval(captureAndDetect, 1000);
+                detectionInterval = setInterval(() => {
+                    if (!isRunning) {
+                        clearInterval(detectionInterval);
+                        return;
+                    }
+                    captureAndDetect();
+                }, 1000);
+                
                 showNotification('Starting detection...', 3000, true);
             }
         }
@@ -621,9 +638,38 @@
             statusIndicator.classList.remove('status-active');
             statusIndicator.classList.add('status-inactive');
             isRunning = false;
-            clearInterval(detectionInterval);
+            
+            // Clear all intervals
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+                detectionInterval = null;
+            }
+            
+            // Immediately cancel any ongoing or queued speech
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+            
+            // Reset detection text
             detectionText.textContent = 'Detection stopped';
-            showNotification('Detection stopped', 3000, true);
+            
+            // Clear any existing canvas drawings
+            const canvas = document.getElementById('detectionOverlay');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Send stop request to server
+            fetch('/stop')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Detection stopped:', data);
+                    // Use priority true to ensure this message is spoken
+                    showNotification('Detection stopped', 3000, true);
+                })
+                .catch(error => {
+                    console.error('Error stopping detection:', error);
+                    showNotification('Error stopping detection', 3000, true);
+                });
         }
 
         function startDetectionUpdates() {
@@ -988,7 +1034,9 @@ async function startCamera() {
         }
 
         async function captureAndDetect() {
-            if (!stream || !videoElement.srcObject) return;
+            if (!isRunning || !stream || !videoElement.srcObject) {
+                return;
+            }
             
             try {
                 if (videoElement.readyState !== videoElement.HAVE_ENOUGH_DATA) {
@@ -1065,6 +1113,9 @@ async function startCamera() {
                 
             } catch (err) {
                 console.error('Detection error:', err);
+                if (!isRunning) {
+                    return;
+                }
             }
         }
 

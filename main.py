@@ -70,6 +70,20 @@ class AudioFeedback:
         except queue.Full:
             pass
 
+    def clear_queue(self):
+        """Clear the speech queue and stop current speech"""
+        while not self.speech_queue.empty():
+            try:
+                self.speech_queue.get_nowait()
+            except queue.Empty:
+                break
+        
+        if self.engine is not None:
+            try:
+                self.engine.stop()
+            except:
+                pass
+
     def _speak_worker(self):
         while True:
             try:
@@ -105,10 +119,13 @@ class ObjectDetector:
             self.is_running = True
 
     def stop_camera(self):
+        self.is_running = False
         if self.camera is not None:
             self.camera.release()
             self.camera = None
-            self.is_running = False
+        # Clear speech queue when stopping
+        self.audio_feedback.clear_queue()
+        self.detection_data = [] 
 
     def calculate_clock_position(self, x, y, frame_width, frame_height):
         center_x = frame_width / 2
@@ -227,8 +244,18 @@ def start():
 
 @app.route('/stop')
 def stop():
-    detector.stop_camera()
-    return jsonify({"status": "success", "message": "Camera stopped"})
+    try:
+        detector.stop_camera()
+        return jsonify({
+            "status": "success", 
+            "message": "Camera and detection stopped"
+        })
+    except Exception as e:
+        logger.error(f"Error stopping detection: {e}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 @app.route('/clock_reference')
 def clock_reference():
