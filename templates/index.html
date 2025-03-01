@@ -486,6 +486,21 @@
             height: 100%;
             object-fit: cover;
         }
+
+        .camera-btn {
+            background: var(--accent-blue);
+            border-radius: 25px;
+            transition: all 0.3s ease;
+        }
+
+        .camera-btn:hover {
+            background: var(--primary-color);
+            transform: translateY(-2px);
+        }
+
+        .camera-btn i {
+            margin-right: 8px;
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -525,6 +540,9 @@
                 </button>
                 <button id="audioToggleBtn" class="btn audio-btn">
                     <i class="fas fa-volume-up"></i> Audio Enabled
+                </button>
+                <button id="switchCameraBtn" class="btn camera-btn" style="display: none;">
+                    <i class="fas fa-camera-rotate"></i> Switch Camera
                 </button>
             </div>
         </div>
@@ -907,16 +925,20 @@
 
 // Replace the existing startCamera function
 
-async function startCamera() {
+async function startCamera(deviceId = null) {
     try {
-        // First check if any old stream exists and stop it
         if (stream) {
             stopCamera();
         }
 
-        // Create constraints array with fallback options
         const constraintsArray = [
-            // First try environment camera (back camera)
+            deviceId ? {
+                video: {
+                    deviceId: { exact: deviceId },
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                }
+            } : null,
             {
                 video: {
                     facingMode: { exact: 'environment' },
@@ -924,7 +946,6 @@ async function startCamera() {
                     height: { ideal: 480 }
                 }
             },
-            // Then try any camera
             {
                 video: {
                     facingMode: 'user',
@@ -932,18 +953,17 @@ async function startCamera() {
                     height: 480
                 }
             },
-            // Finally try with basic constraints
             { video: true }
-        ];
+        ].filter(Boolean);
 
         let lastError;
         for (const constraints of constraintsArray) {
             try {
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
-                break; // If successful, exit the loop
+                break;
             } catch (e) {
                 lastError = e;
-                continue; // Try next constraints
+                continue;
             }
         }
 
@@ -951,41 +971,32 @@ async function startCamera() {
             throw lastError || new Error('Could not access any camera');
         }
 
-        // Ensure video element is properly configured
-        videoElement = document.getElementById('videoFeed'); // Re-get the element
+        videoElement = document.getElementById('videoFeed');
         if (!videoElement) {
             throw new Error('Video element not found');
         }
 
-        // Configure video element
         videoElement.setAttribute('autoplay', '');
         videoElement.setAttribute('playsinline', '');
         videoElement.setAttribute('muted', '');
-        videoElement.muted = true; // Required for autoplay in some browsers
+        videoElement.muted = true;
         
-        // Set the stream
         videoElement.srcObject = stream;
 
-        // Wait for video to be ready
         await new Promise((resolve, reject) => {
             videoElement.onloadedmetadata = () => {
-                // Configure canvas after video is loaded
                 captureCanvas.width = videoElement.videoWidth || 640;
                 captureCanvas.height = videoElement.videoHeight || 480;
                 resolve();
             };
             videoElement.onerror = () => reject(new Error('Video element error'));
-            
-            // Set timeout for loading
             setTimeout(() => reject(new Error('Video loading timeout')), 10000);
         });
 
-        // Ensure video plays
         try {
             await videoElement.play();
         } catch (playError) {
             console.error('Play error:', playError);
-            // Try alternative play method
             const playPromise = videoElement.play();
             if (playPromise !== undefined) {
                 await playPromise;
@@ -1169,6 +1180,76 @@ async function startCamera() {
             // Update on window resize
             window.addEventListener('resize', updateCanvasSize);
         });
+
+        // Add after the camera handling section, before the script's closing tag
+
+        let availableCameras = [];
+        let currentCameraIndex = 0;
+        const switchCameraBtn = document.getElementById('switchCameraBtn');
+
+        // Function to enumerate available cameras
+        async function getAvailableCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                availableCameras = devices.filter(device => device.kind === 'videoinput');
+                
+                // Show/hide switch camera button based on available cameras
+                if (availableCameras.length > 1) {
+                    switchCameraBtn.style.display = 'block';
+                } else {
+                    switchCameraBtn.style.display = 'none';
+                }
+                
+                console.log('Available cameras:', availableCameras);
+                return availableCameras;
+            } catch (err) {
+                console.error('Error getting cameras:', err);
+                return [];
+            }
+        }
+
+        // Function to switch camera
+        async function switchCamera() {
+            if (availableCameras.length <= 1) return;
+            
+            currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
+            
+            const wasRunning = isRunning;
+            if (wasRunning) {
+                await stopDetection();
+            }
+            
+            try {
+                stopCamera();
+                await startCamera(availableCameras[currentCameraIndex].deviceId);
+                
+                if (wasRunning) {
+                    await startDetection();
+                }
+                
+                showNotification(`Switched to camera ${currentCameraIndex + 1}`, 2000);
+            } catch (err) {
+                console.error('Error switching camera:', err);
+                showNotification('Failed to switch camera', 3000);
+            }
+        }
+
+        // Add event listener for switch camera button
+        switchCameraBtn.addEventListener('click', switchCamera);
+
+        // Initialize camera detection on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            await getAvailableCameras();
+        });
+
+        // Add permission handling
+        navigator.permissions?.query({ name: 'camera' })
+            .then(permissionStatus => {
+                permissionStatus.onchange = () => {
+                    getAvailableCameras();
+                };
+            })
+            .catch(console.error);
     </script>
 </body>
 </html>
