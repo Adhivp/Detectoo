@@ -488,6 +488,7 @@ def create_user():
 def history():
     return render_template('history.html')
 
+
 @app.route('/api/history')
 def get_history():
     try:
@@ -500,10 +501,19 @@ def get_history():
         
         query = Detection.query.filter_by(user_id=user_id)
         
+        ist_tz = pytz.timezone('Asia/Kolkata')
+        
         if start_date:
-            query = query.filter(Detection.detected_at >= start_date)
+            # Convert start_date to IST for comparison
+            start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            start_dt = start_dt.astimezone(ist_tz)
+            query = query.filter(Detection.detected_at >= start_dt)
+            
         if end_date:
-            query = query.filter(Detection.detected_at <= end_date)
+            # Convert end_date to IST for comparison
+            end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            end_dt = end_dt.astimezone(ist_tz)
+            query = query.filter(Detection.detected_at <= end_dt)
         
         detections = query.order_by(Detection.detected_at.desc()).all()
         
@@ -513,12 +523,12 @@ def get_history():
             'object_label': d.object_label,
             'position': d.position,
             'distance': d.distance,
-            'detected_at': d.detected_at.isoformat()
+            'detected_at': d.detected_at.astimezone(ist_tz).isoformat()
         } for d in detections])
     except Exception as e:
         logger.error(f"Error fetching history: {e}")
         return jsonify({'error': str(e)}), 500
-
+    
 @app.route('/login')
 def login():
     return render_template('login.html')

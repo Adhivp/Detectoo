@@ -191,32 +191,45 @@
                     window.location.href = '/login';
                     return;
                 }
-
+        
                 const startDate = document.getElementById('startDate').value;
                 const endDate = document.getElementById('endDate').value;
-
+        
                 const queryParams = new URLSearchParams({
                     user_id: userId
                 });
                 
-                if (startDate) queryParams.append('start_date', startDate);
-                if (endDate) queryParams.append('end_date', endDate);
-
+                if (startDate) {
+                    // Convert local datetime to UTC ISO string
+                    const startDateTime = new Date(startDate);
+                    queryParams.append('start_date', startDateTime.toISOString());
+                }
+                if (endDate) {
+                    // Convert local datetime to UTC ISO string
+                    const endDateTime = new Date(endDate);
+                    // Add one day minus one millisecond to include the entire end date
+                    endDateTime.setHours(23, 59, 59, 999);
+                    queryParams.append('end_date', endDateTime.toISOString());
+                }
+        
                 const response = await fetch(`/api/history?${queryParams}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const data = await response.json();
                 
                 const tableBody = document.getElementById('historyTableBody');
                 tableBody.innerHTML = '';
-
+        
                 if (data.length === 0) {
                     tableBody.innerHTML = `
                         <tr>
-                            <td colspan="5" class="empty-state">No detection history found</td>
+                            <td colspan="5" class="empty-state">No detection history found for the selected period</td>
                         </tr>
                     `;
                     return;
                 }
-
+        
                 data.forEach(detection => {
                     const row = document.createElement('tr');
                     row.innerHTML = `
@@ -230,7 +243,12 @@
                 });
             } catch (error) {
                 console.error('Error loading history:', error);
-                showNotification('Error loading history data');
+                const tableBody = document.getElementById('historyTableBody');
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="empty-state">Error loading history data: ${error.message}</td>
+                    </tr>
+                `;
             }
         }
 
@@ -253,9 +271,20 @@
             window.location.href = '/login';
         }
 
+        // Add this function to initialize date inputs with current date range
+        function initializeDateFilters() {
+            const today = new Date();
+            const startOfDay = new Date(today);
+            startOfDay.setHours(0, 0, 0, 0);
+            
+            document.getElementById('startDate').value = startOfDay.toISOString().slice(0, 16);
+            document.getElementById('endDate').value = today.toISOString().slice(0, 16);
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             if (!checkAuth()) return;
+            initializeDateFilters();
             loadHistory();
         });
         loadUsers();
