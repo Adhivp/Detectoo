@@ -200,14 +200,14 @@
                 });
                 
                 if (startDate) {
-                    // Convert local datetime to UTC ISO string
+                    // Convert local datetime to IST
                     const startDateTime = new Date(startDate);
+
                     queryParams.append('start_date', startDateTime.toISOString());
                 }
                 if (endDate) {
-                    // Convert local datetime to UTC ISO string
+                    // Convert local datetime to IST
                     const endDateTime = new Date(endDate);
-                    // Add one day minus one millisecond to include the entire end date
                     endDateTime.setHours(23, 59, 59, 999);
                     queryParams.append('end_date', endDateTime.toISOString());
                 }
@@ -271,9 +271,12 @@
             window.location.href = '/login';
         }
 
-        // Add this function to initialize date inputs with current date range
+        // Update the initializeDateFilters function to handle IST
         function initializeDateFilters() {
             const today = new Date();
+            // Add IST offset (5 hours and 30 minutes)
+            today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+            
             const startOfDay = new Date(today);
             startOfDay.setHours(0, 0, 0, 0);
             

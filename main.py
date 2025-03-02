@@ -528,7 +528,7 @@ def get_history():
     except Exception as e:
         logger.error(f"Error fetching history: {e}")
         return jsonify({'error': str(e)}), 500
-    
+       
 @app.route('/login')
 def login():
     return render_template('login.html')
