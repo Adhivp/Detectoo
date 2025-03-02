@@ -19,8 +19,109 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 # Global variables
 MODEL_PATH = os.getenv('MODEL_PATH', 'yolo11m.pt')
-KNOWN_WIDTH = float(os.getenv('KNOWN_WIDTH', 0.6))
-FOCAL_LENGTH = int(os.getenv('FOCAL_LENGTH', 1000))
+KNOWN_WIDTH = {
+    # People
+    'person': 0.5,        # Average shoulder width
+    
+    # Vehicles
+    'bicycle': 0.6,       # Average bicycle width
+    'car': 1.8,          # Average car width
+    'motorcycle': 0.7,    # Average motorcycle width
+    'airplane': 40.0,     # Average commercial airplane width
+    'bus': 2.5,          # Average bus width
+    'train': 3.0,        # Average train width
+    'truck': 2.5,        # Average truck width
+    'boat': 2.5,         # Average small boat width
+    
+    # Common objects
+    'traffic light': 0.3, # Average traffic light width
+    'fire hydrant': 0.3,  # Average fire hydrant width
+    'stop sign': 0.6,     # Average stop sign width
+    'parking meter': 0.2, # Average parking meter width
+    'bench': 1.5,        # Average bench width
+    
+    # Animals
+    'bird': 0.2,         # Average small bird width
+    'cat': 0.3,          # Average cat width
+    'dog': 0.4,          # Average dog width
+    'horse': 0.6,        # Average horse width (shoulder width)
+    'sheep': 0.5,        # Average sheep width
+    'cow': 0.8,          # Average cow width
+    'elephant': 3.0,     # Average elephant width
+    'bear': 1.0,         # Average bear width
+    'zebra': 0.7,        # Average zebra width
+    'giraffe': 1.5,      # Average giraffe width (body)
+    
+    # Accessories
+    'backpack': 0.3,     # Average backpack width
+    'umbrella': 1.0,     # Average umbrella width when open
+    'handbag': 0.3,      # Average handbag width
+    'tie': 0.1,          # Average tie width
+    'suitcase': 0.5,     # Average suitcase width
+    
+    # Sports equipment
+    'frisbee': 0.25,     # Average frisbee diameter
+    'skis': 0.1,         # Average ski width
+    'snowboard': 0.3,    # Average snowboard width
+    'sports ball': 0.2,  # Average sports ball diameter
+    'kite': 1.0,         # Average kite width
+    'baseball bat': 0.07, # Average baseball bat width
+    'baseball glove': 0.25, # Average baseball glove width
+    'skateboard': 0.2,   # Average skateboard width
+    'surfboard': 0.5,    # Average surfboard width
+    'tennis racket': 0.3, # Average tennis racket width
+    
+    # Indoor objects
+    'bottle': 0.1,       # Average bottle width
+    'wine glass': 0.08,  # Average wine glass width
+    'cup': 0.1,          # Average cup width
+    'fork': 0.03,        # Average fork width
+    'knife': 0.03,       # Average knife width
+    'spoon': 0.03,       # Average spoon width
+    'bowl': 0.15,        # Average bowl width
+    'banana': 0.03,      # Average banana width
+    'apple': 0.08,       # Average apple width
+    'sandwich': 0.15,    # Average sandwich width
+    'orange': 0.08,      # Average orange width
+    'broccoli': 0.15,    # Average broccoli width
+    'carrot': 0.03,      # Average carrot width
+    'hot dog': 0.15,     # Average hot dog width
+    'pizza': 0.3,        # Average pizza width
+    'donut': 0.1,        # Average donut width
+    'cake': 0.25,        # Average cake width
+    
+    # Electronics
+    'chair': 0.5,        # Average chair width
+    'couch': 2.0,        # Average couch width
+    'potted plant': 0.3, # Average potted plant width
+    'bed': 1.5,          # Average bed width
+    'dining table': 1.5, # Average dining table width
+    'toilet': 0.6,       # Average toilet width
+    'tv': 1.2,           # Average TV width
+    'laptop': 0.35,      # Average laptop width
+    'mouse': 0.06,       # Average computer mouse width
+    'remote': 0.05,      # Average remote control width
+    'keyboard': 0.4,     # Average keyboard width
+    'cell phone': 0.07,  # Average cell phone width
+    
+    # Appliances
+    'microwave': 0.5,    # Average microwave width
+    'oven': 0.6,         # Average oven width
+    'toaster': 0.3,      # Average toaster width
+    'sink': 0.6,         # Average sink width
+    'refrigerator': 0.8, # Average refrigerator width
+    
+    # Other
+    'book': 0.15,        # Average book width
+    'clock': 0.3,        # Average wall clock width
+    'vase': 0.2,         # Average vase width
+    'scissors': 0.1,     # Average scissors width
+    'teddy bear': 0.3,   # Average teddy bear width
+    'hair drier': 0.1,   # Average hair drier width
+    'toothbrush': 0.02,  # Average toothbrush width
+}
+
+FOCAL_LENGTH = 1000   # This is an approximate value, might need calibration
 
 # Initialize YOLO model globally
 try:
@@ -134,8 +235,19 @@ class ObjectDetector:
         clock_position = int(((angle + math.pi) * 6 / math.pi + 3) % 12)
         return 12 if clock_position == 0 else clock_position
 
-    def calculate_distance(self, pixel_width):
-        return (KNOWN_WIDTH * FOCAL_LENGTH) / pixel_width
+    def calculate_distance(self, pixel_width, object_class):
+        """
+        Calculate the distance of an object using the triangle similarity formula
+        Distance = (Known width × Focal length) / Pixel width
+        """
+        try:
+            # Get the known width for the object class, default to 0.5 if not found
+            known_width = KNOWN_WIDTH.get(object_class, 0.5)
+            distance = (known_width * FOCAL_LENGTH) / pixel_width
+            # Limit distance to reasonable range (0.1 to 20 meters)
+            return max(0.1, min(20, distance))
+        except ZeroDivisionError:
+            return 0.0
 
     def process_frame(self):
         while self.is_running:
@@ -156,17 +268,22 @@ class ObjectDetector:
                     cls = int(box.cls[0])
                     label = self.model.names[cls]
                     
+                    # Calculate distance using pixel width and object class
+                    pixel_width = x2 - x1
+                    distance = self.calculate_distance(pixel_width, label.lower())
+                    
                     center_x = (x1 + x2) / 2
                     center_y = (y1 + y2) / 2
                     clock_pos = self.calculate_clock_position(
                         center_x, center_y, frame.shape[1], frame.shape[0]
                     )
-                    distance = self.calculate_distance(x2 - x1)
                     
+                    # Draw bounding box and label with distance
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    label_text = f"{label} {distance:.1f}m"
                     cv2.putText(
                         frame, 
-                        f"{label} {distance:.1f}m", 
+                        label_text,
                         (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 
                         0.9, 
@@ -174,10 +291,17 @@ class ObjectDetector:
                         2
                     )
                     
+                    # Add detection data
                     detected_objects.append({
                         'label': label,
                         'position': clock_pos,
-                        'distance': f"{distance:.1f}"
+                        'distance': f"{distance:.1f}",
+                        'bbox': {
+                            'x': x1,
+                            'y': y1,
+                            'width': x2 - x1,
+                            'height': y2 - y1
+                        }
                     })
 
             self.detection_data = detected_objects
@@ -281,18 +405,16 @@ def detect():
                 cls = int(box.cls[0])
                 label = model.names[cls]
                 
-                # Calculate center and position
+                # Calculate distance using pixel width and object class
+                pixel_width = x2 - x1
+                distance = (KNOWN_WIDTH.get(label.lower(), 0.5) * FOCAL_LENGTH) / pixel_width
+                distance = max(0.1, min(20, distance))  # Limit to reasonable range
+                
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
-                
-                # Calculate clock position
-                frame_height, frame_width = frame.shape[:2]
                 clock_pos = calculate_clock_position(
-                    center_x, center_y, frame_width, frame_height
+                    center_x, center_y, frame.shape[1], frame.shape[0]
                 )
-                
-                # Calculate distance
-                distance = (KNOWN_WIDTH * FOCAL_LENGTH) / (x2 - x1)
                 
                 detected_objects.append({
                     'label': label,

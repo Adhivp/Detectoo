@@ -1146,7 +1146,7 @@ async function startCamera(deviceId = null) {
             if (detections.length > 0) {
                 const text = `Detected ${detections.length} objects. ` +
                     detections.map(obj => 
-                        `${obj.label} at ${obj.position} o'clock`
+                        `${obj.label} at ${obj.position} o'clock, ${obj.distance} meters away`
                     ).join(' ');
                 
                 detectionText.textContent = text;
