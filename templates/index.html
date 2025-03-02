@@ -260,7 +260,6 @@
             }
         }
 
-        /* New notification styles */
         .notification-area {
             position: fixed;
             top: 20px;
@@ -269,24 +268,25 @@
             max-width: 300px;
             width: 90%;
         }
-
+        
         .notification {
+            background: var(--gradient);
+            color: var(--dark-blue);
             padding: 15px 20px;
             margin-bottom: 10px;
-            background: #7E84F2;
-            color: #102940;
             border-radius: 12px;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            font-weight: bold;
+            font-weight: 600;
             font-size: 16px;
-            border: 2px solid #102940;
+            border: 2px solid var(--dark-blue);
             animation: slideIn 0.3s ease-out;
-            display: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             opacity: 0.95;
-            position: relative;
-            overflow: hidden;
+            transition: all 0.3s ease;
         }
-
+        
         .notification::before {
             content: '';
             position: absolute;
@@ -294,19 +294,30 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: linear-gradient(135deg, rgba(126, 132, 242, 0.95), rgba(126, 242, 231, 0.95));
+            background: var(--gradient);
+            border-radius: 10px;
             z-index: -1;
         }
-
+        
         .notification::after {
             content: '🔔';
-            position: absolute;
-            right: 15px;
-            top: 50%;
-            transform: translateY(-50%);
+            margin-left: 10px;
             font-size: 18px;
         }
-
+        
+        .notification:hover {
+            opacity: 1;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+        }
+        
+        .notification-message {
+            color: var(--dark-blue);
+            margin-right: 30px;
+            flex-grow: 1;
+        }
+        
         @keyframes slideIn {
             from {
                 transform: translateX(100%);
@@ -317,14 +328,7 @@
                 opacity: 1;
             }
         }
-
-        .notification:hover {
-            opacity: 1;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-            cursor: pointer;
-        }
-
+        
         @media (max-width: 768px) {
             .notification-area {
                 top: 10px;
@@ -332,17 +336,12 @@
                 left: 10px;
                 max-width: none;
             }
-
+        
             .notification {
                 font-size: 14px;
-                padding: 12px 35px 12px 15px;
-                margin-bottom: 8px;
-                background: #7E84F2;
-                border: 2px solid #102940;
-                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+                padding: 12px 15px;
             }
         }
-
         .control-panel {
             display: flex;
             flex-direction: column;
@@ -843,42 +842,51 @@
         let recognition = null;
         let isListening = false;
 
+
+
         function showNotification(message, duration = 3000, priority = false) {
-            const notification = document.getElementById('notification');
+            const notificationArea = document.getElementById('notification');
             
-            if (notification.timeout) {
-                clearTimeout(notification.timeout);
+            // Clear any existing timeout
+            if (notificationArea.timeout) {
+                clearTimeout(notificationArea.timeout);
             }
             
+            // Create and append notification element
+            const notification = document.createElement('div');
+            notification.className = 'notification';
             notification.innerHTML = `
                 <span class="notification-message">${message}</span>
             `;
             
-            notification.style.display = 'block';
-            notification.style.opacity = '0.95';
+            // Clear existing notifications
+            notificationArea.innerHTML = '';
+            notificationArea.appendChild(notification);
             
-            notification.offsetHeight;
-            
+            // Handle speech
             speak(message, priority);
             
-            notification.timeout = setTimeout(() => {
+            // Set timeout for removal
+            notificationArea.timeout = setTimeout(() => {
                 notification.style.opacity = '0';
+                notification.style.transform = 'translateX(100%)';
                 setTimeout(() => {
-                    notification.style.display = 'none';
+                    notificationArea.removeChild(notification);
                 }, 300);
             }, duration);
             
+            // Click to dismiss
             notification.onclick = () => {
                 notification.style.opacity = '0';
-                if (notification.timeout) {
-                    clearTimeout(notification.timeout);
+                notification.style.transform = 'translateX(100%)';
+                if (notificationArea.timeout) {
+                    clearTimeout(notificationArea.timeout);
                 }
                 setTimeout(() => {
-                    notification.style.display = 'none';
+                    notificationArea.removeChild(notification);
                 }, 300);
             };
         }
-
         function initializeSpeechRecognition() {
             if ('webkitSpeechRecognition' in window) {
                 recognition = new webkitSpeechRecognition();
