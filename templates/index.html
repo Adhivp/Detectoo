@@ -936,38 +936,6 @@
         const captureCanvas = document.createElement('canvas');
         const captureCtx = captureCanvas.getContext('2d');
 
-// Add this at the beginning of your existing script
-async function promptForName() {
-    const userId = localStorage.getItem('userId');
-    if (!userId) {
-        const name = prompt('Please enter your name to continue:');
-        if (name) {
-            try {
-                const response = await fetch('/api/user', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ name })
-                });
-                const data = await response.json();
-                localStorage.setItem('userId', data.id);
-                showNotification(`Welcome, ${name}!`, 3000, true);
-            } catch (error) {
-                console.error('Error creating user:', error);
-                showNotification('Error saving user information', 3000, true);
-            }
-        } else {
-            showNotification('Name is required to use the application', 3000, true);
-            setTimeout(promptForName, 1000);
-        }
-    }
-}
-
-// Call promptForName when the page loads
-document.addEventListener('DOMContentLoaded', promptForName);
-
-// Replace the existing startCamera function
 
 async function startCamera(deviceId = null) {
     try {
