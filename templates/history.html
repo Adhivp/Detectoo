@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detection History - Detectoo</title>
+    <link rel="icon" type="image/png" href="/static/logo_nobg.png">
+    <style>
+        /* Copy the existing CSS variables from index.html */
+        :root {
+            --primary-color: #7E84F2;
+            --secondary-color: #7EF2E7;
+            --dark-blue: #102940;
+            --accent-blue: #2675A6;
+            --dark: #0D0D0D;
+            --white: #ffffff;
+            --gradient: linear-gradient(135deg, #7E84F2, #7EF2E7);
+        }
+
+        body {
+            background: var(--dark-blue);
+            color: var(--white);
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .filters {
+            background: var(--dark);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .filter-group label {
+            color: var(--secondary-color);
+        }
+
+        .filter-group input, .filter-group select {
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid var(--secondary-color);
+            background: var(--dark-blue);
+            color: var(--white);
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--dark);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .history-table th, .history-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(126, 242, 231, 0.1);
+        }
+
+        .history-table th {
+            background: var(--gradient);
+            color: var(--dark-blue);
+            font-weight: bold;
+        }
+
+        .history-table tr:hover {
+            background: rgba(126, 242, 231, 0.1);
+        }
+
+        .btn {
+            background: var(--gradient);
+            color: var(--dark-blue);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--secondary-color);
+        }
+
+        @media (max-width: 768px) {
+            .filters {
+                flex-direction: column;
+            }
+
+            .history-table {
+                display: block;
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Detection History</h1>
+            <div class="nav-buttons">
+                <a href="/" class="btn">Back to Detection</a>
+                <button onclick="logout()" class="btn">Logout</button>
+            </div>
+        </header>
+
+        <div class="filters">
+            <div class="filter-group">
+                <label for="userFilter">User</label>
+                <select id="userFilter">
+                    <option value="">All Users</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="startDate">Start Date</label>
+                <input type="datetime-local" id="startDate">
+            </div>
+            <div class="filter-group">
+                <label for="endDate">End Date</label>
+                <input type="datetime-local" id="endDate">
+            </div>
+            <button class="btn" onclick="applyFilters()">Apply Filters</button>
+        </div>
+
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th>Time (IST)</th>
+                    <th>User</th>
+                    <th>Object</th>
+                    <th>Position</th>
+                    <th>Distance (m)</th>
+                </tr>
+            </thead>
+            <tbody id="historyTableBody">
+                <!-- Data will be populated here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let currentUserId = localStorage.getItem('userId');
+        
+        function formatDateTime(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleString('en-IN', { 
+                timeZone: 'Asia/Kolkata',
+                dateStyle: 'medium',
+                timeStyle: 'medium'
+            });
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/history');
+                const data = await response.json();
+                const userFilter = document.getElementById('userFilter');
+                const users = new Set(data.map(d => d.user_name));
+                
+                users.forEach(userName => {
+                    const option = document.createElement('option');
+                    option.value = userName;
+                    option.textContent = userName;
+                    userFilter.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const userId = localStorage.getItem('userId');
+                if (!userId) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+
+                const queryParams = new URLSearchParams({
+                    user_id: userId
+                });
+                
+                if (startDate) queryParams.append('start_date', startDate);
+                if (endDate) queryParams.append('end_date', endDate);
+
+                const response = await fetch(`/api/history?${queryParams}`);
+                const data = await response.json();
+                
+                const tableBody = document.getElementById('historyTableBody');
+                tableBody.innerHTML = '';
+
+                if (data.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="empty-state">No detection history found</td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                data.forEach(detection => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${formatDateTime(detection.detected_at)}</td>
+                        <td>${detection.user_name}</td>
+                        <td>${detection.object_label}</td>
+                        <td>${detection.position} o'clock</td>
+                        <td>${detection.distance}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Error loading history:', error);
+                showNotification('Error loading history data');
+            }
+        }
+
+        function applyFilters() {
+            loadHistory();
+        }
+
+        function checkAuth() {
+            const userId = localStorage.getItem('userId');
+            if (!userId) {
+                window.location.href = '/login';
+                return false;
+            }
+            return true;
+        }
+
+        function logout() {
+            localStorage.removeItem('userId');
+            localStorage.removeItem('userName');
+            window.location.href = '/login';
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            if (!checkAuth()) return;
+            loadHistory();
+        });
+        loadUsers();
+    </script>
+</body>
+</html>

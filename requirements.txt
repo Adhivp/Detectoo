@@ -3,3 +3,5 @@ opencv-python
 ultralytics
 pyttsx3
 python-dotenv
+flask-sqlalchemy
+pytz

@@ -11,6 +11,11 @@ import logging
 import os
 from dotenv import load_dotenv
 import sys
+from flask_sqlalchemy import SQLAlchemy
+from models import db, User, Detection
+from datetime import datetime
+import pytz
+
 load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -131,6 +136,13 @@ except Exception as e:
     logger.error(f"Error loading YOLO model: {e}")
     sys.exit(1)
 
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///detectoo.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+
+with app.app_context():
+    db.create_all()
+    
 class AudioFeedback:
     def __init__(self):
         self.engine = None
@@ -388,6 +400,10 @@ def clock_reference():
 @app.route('/detect', methods=['POST'])
 def detect():
     try:
+        user_id = request.form.get('user_id')  # Get user_id from request
+        if not user_id:
+            return jsonify({'error': 'User ID is required'}), 400
+
         file = request.files['image']
         nparr = np.frombuffer(file.read(), np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -429,10 +445,112 @@ def detect():
                     }
                 })
         
+        # Save detections to database
+        for obj in detected_objects:
+            detection = Detection(
+                user_id=user_id,
+                object_label=obj['label'],
+                position=obj['position'],
+                distance=float(obj['distance'])
+            )
+            db.session.add(detection)
+        
+        db.session.commit()
+        
         return jsonify(detected_objects)
     
     except Exception as e:
         logger.error(f"Error processing detection: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user', methods=['POST'])
+def create_user():
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        if not name:
+            return jsonify({'error': 'Name is required'}), 400
+        
+        user = User(name=name)
+        db.session.add(user)
+        db.session.commit()
+        
+        return jsonify({
+            'id': user.id,
+            'name': user.name,
+            'created_at': user.created_at.isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error creating user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/history')
+def history():
+    return render_template('history.html')
+
+@app.route('/api/history')
+def get_history():
+    try:
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+            
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        query = Detection.query.filter_by(user_id=user_id)
+        
+        if start_date:
+            query = query.filter(Detection.detected_at >= start_date)
+        if end_date:
+            query = query.filter(Detection.detected_at <= end_date)
+        
+        detections = query.order_by(Detection.detected_at.desc()).all()
+        
+        return jsonify([{
+            'id': d.id,
+            'user_name': d.user.name,
+            'object_label': d.object_label,
+            'position': d.position,
+            'distance': d.distance,
+            'detected_at': d.detected_at.isoformat()
+        } for d in detections])
+    except Exception as e:
+        logger.error(f"Error fetching history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/login')
+def login():
+    return render_template('login.html')
+
+@app.route('/api/auth', methods=['POST'])
+def auth():
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        action = data.get('action')
+        
+        if not name:
+            return jsonify({'error': 'Name is required'}), 400
+        
+        if action == 'login':
+            user = User.query.filter_by(name=name).first()
+            if not user:
+                return jsonify({'error': 'User not found'}), 404
+        else:  # register
+            if User.query.filter_by(name=name).first():
+                return jsonify({'error': 'Name already taken'}), 400
+            user = User(name=name)
+            db.session.add(user)
+            db.session.commit()
+        
+        return jsonify({
+            'id': user.id,
+            'name': user.name,
+            'created_at': user.created_at.isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Auth error: {e}")
         return jsonify({'error': str(e)}), 500
 
 # Add this helper function outside of any class or route

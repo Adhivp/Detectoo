@@ -501,6 +501,12 @@
         .camera-btn i {
             margin-right: 8px;
         }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+            margin-left: auto;
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -521,6 +527,10 @@
             <div class="header-content">
                 <img src="/static/logo_nobg.png" alt="Detectoo Logo" class="logo">
                 <h1>Detectoo – AI-Powered Object Recognition for the Blind</h1>
+                <div class="nav-buttons">
+                    <a href="/history" class="btn">View History</a>
+                    <button onclick="logout()" class="btn">Logout</button>
+                </div>
             </div>
         </header>
 
@@ -908,6 +918,9 @@
         });
 
         document.addEventListener('DOMContentLoaded', () => {
+            if (!checkAuth()) return;
+            const userName = localStorage.getItem('userName');
+            showNotification(`Welcome back, ${userName}!`, 3000, true);
             setTimeout(() => {
                 const splashScreen = document.getElementById('splashScreen');
                 splashScreen.style.opacity = '0';
@@ -922,6 +935,37 @@
         let videoElement = document.getElementById('videoFeed');
         const captureCanvas = document.createElement('canvas');
         const captureCtx = captureCanvas.getContext('2d');
+
+// Add this at the beginning of your existing script
+async function promptForName() {
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+        const name = prompt('Please enter your name to continue:');
+        if (name) {
+            try {
+                const response = await fetch('/api/user', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                localStorage.setItem('userId', data.id);
+                showNotification(`Welcome, ${name}!`, 3000, true);
+            } catch (error) {
+                console.error('Error creating user:', error);
+                showNotification('Error saving user information', 3000, true);
+            }
+        } else {
+            showNotification('Name is required to use the application', 3000, true);
+            setTimeout(promptForName, 1000);
+        }
+    }
+}
+
+// Call promptForName when the page loads
+document.addEventListener('DOMContentLoaded', promptForName);
 
 // Replace the existing startCamera function
 
@@ -1045,6 +1089,13 @@ async function startCamera(deviceId = null) {
         }
 
         async function captureAndDetect() {
+            const userId = localStorage.getItem('userId');
+            if (!userId) {
+                showNotification('Please provide your name to start detection', 3000, true);
+                promptForName();
+                return;
+            }
+            
             if (!isRunning || !stream || !videoElement.srcObject) {
                 return;
             }
@@ -1063,6 +1114,7 @@ async function startCamera(deviceId = null) {
                 
                 const formData = new FormData();
                 formData.append('image', blob);
+                formData.append('user_id', userId);
                 
                 const response = await fetch('/detect', {
                     method: 'POST',
@@ -1250,6 +1302,21 @@ async function startCamera(deviceId = null) {
                 };
             })
             .catch(console.error);
+
+        function checkAuth() {
+            const userId = localStorage.getItem('userId');
+            if (!userId) {
+                window.location.href = '/login';
+                return false;
+            }
+            return true;
+        }
+
+        function logout() {
+            localStorage.removeItem('userId');
+            localStorage.removeItem('userName');
+            window.location.href = '/login';
+        }
     </script>
 </body>
 </html>
